@@ -1,0 +1,72 @@
+variable        simname index HKUST-1_3x3x3
+variable        dt index 0.25
+log             log.${simname}.txt
+units           real
+variable   		T	equal	300 #the temperature is set as 300K
+boundary        p p p
+timestep        ${dt}
+atom_style	    charge
+
+
+box tilt        large
+
+read_data 	    ${simname}.data
+
+pair_style      reax/c NULL checkqeq yes safezone 1.6  mincap 100
+pair_coeff      * * CuBTC.ff C Cu H O
+neigh_modify    every 1 delay 0 check yes    
+fix             1 all qeq/reax 1 0.0 10.0 1.0e-6 reax/c
+# ------------------------- SETTINGS ---------------------------------
+
+# Set thermo output
+
+thermo         	1000 
+variable	pxx1 equal pxx*1.01325*0.0001
+variable	pyy1 equal pyy*1.01325*0.0001
+variable	pzz1 equal pzz*1.01325*0.0001
+variable	press1 equal press*1.01325*0.0001
+variable	volume equal vol
+variable	energy equal etotal
+variable	epair  equal epair
+variable	ebond  equal ebond
+variable	eangle equal eangle
+variable	edihed equal edihed
+variable	eimp   equal eimp
+thermo_style	custom step  temp vol v_press1  v_pxx1 v_pyy1 v_pzz1 pxy pyz pxz etotal
+dump		1 all custom 10000 ${simname}.lammpstrj id type x y z
+
+######################################
+# RELAXATION
+variable ndelta equal 80 
+variable nevery equal 10                  # sampling interval 
+variable nrepeat equal 100                # number of samples 
+variable nfreq equal ${nevery}*${nrepeat} # length of one average 
+variable nthermo equal ${nfreq} 
+variable volume  equal vol
+variable energy  equal etotal
+
+thermo_style custom step temp pe etotal press vol lx ly lz
+thermo ${nthermo}
+
+change_box all x delta 0 0.4 y delta 0 0.4 z delta 0 0.4 remap units box
+variable   tdamp   equal 100*${dt}
+variable   pdamp   equal 1000*${dt}
+
+minimize 1e-8 1e-8 1000 1000 
+
+fix relax all npt temp ${T} ${T} ${tdamp} iso 0 0 ${pdamp}
+run    200000
+unfix relax
+
+fix 2 all nvt temp ${T} ${T} ${tdamp}
+label 		loop
+variable 	i loop ${ndelta}
+change_box all x delta 0 -0.2 y delta 0 -0.2 z delta 0 -0.2 remap units box
+dump positions all atom 100000 ${simname}_step_${i}.lammpstrj
+fix avp all ave/time  ${nevery} ${nrepeat} ${nfreq} v_volume c_thermo_press v_energy file ${simname}_step_${i}.txt 
+run 200000
+unfix avp
+undump positions
+
+next 		i
+jump 		SELF loop
